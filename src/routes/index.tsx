@@ -2,9 +2,17 @@ import { fetchServerSentEvents, useChat } from '@tanstack/ai-react'
 import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useMemo, useState } from 'react'
 
-import { WorkoutSchema } from '../lib/workout'
+import {
+  NormalizedWorkoutRequestSchema,
+  WorkoutGenerationResponseSchema,
+} from '../lib/workout'
+import { sanitizeZwoFileName, workoutToZwo } from '../lib/zwo'
 
-import type { Workout, WorkoutBlock } from '../lib/workout'
+import type {
+  NormalizedWorkoutRequest,
+  Workout,
+  WorkoutBlock,
+} from '../lib/workout'
 import type { FormEvent } from 'react'
 
 export const Route = createFileRoute('/')({ component: Home })
@@ -38,9 +46,8 @@ function isRiderProfile(value: unknown): value is RiderProfile {
 function Home() {
   const [input, setInput] = useState('')
   const [mode, setMode] = useState<HomeMode>('chat')
-  const [profile, setProfile] = useState<RiderProfile | null>()
+  const [profile, setProfile] = useState<RiderProfile>()
   const [profileError, setProfileError] = useState('')
-  const [profileSaveStatus, setProfileSaveStatus] = useState('')
   const forwardedProps = useMemo(() => ({ riderProfile: profile }), [profile])
   const { messages, sendMessage, isLoading, error } = useChat({
     connection: fetchServerSentEvents('/api/chat'),
@@ -52,16 +59,49 @@ function Home() {
       const savedProfile = localStorage.getItem(riderProfileStorageKey)
 
       if (!savedProfile) {
-        setProfile(null)
+        setProfile({})
         return
       }
 
       const parsedProfile: unknown = JSON.parse(savedProfile)
-      setProfile(isRiderProfile(parsedProfile) ? parsedProfile : null)
+      setProfile(isRiderProfile(parsedProfile) ? parsedProfile : {})
     } catch {
-      setProfile(null)
+      setProfile({})
     }
   }, [])
+
+  useEffect(() => {
+    if (profile === undefined) return
+
+    try {
+      localStorage.setItem(riderProfileStorageKey, JSON.stringify(profile))
+      setProfileError('')
+    } catch {
+      setProfileError(
+        'We could not save your changes in this browser. Please try again.',
+      )
+    }
+  }, [profile])
+
+  const updateProfile = (field: keyof RiderProfile, value: string) => {
+    setProfile((currentProfile) => {
+      const nextProfile = { ...currentProfile }
+
+      if (field === 'name') {
+        if (value) {
+          nextProfile.name = value
+        } else {
+          delete nextProfile.name
+        }
+      } else if (value) {
+        nextProfile[field] = Number(value)
+      } else {
+        delete nextProfile[field]
+      }
+
+      return nextProfile
+    })
+  }
 
   const handleSubmit = () => {
     const message = input.trim()
@@ -76,119 +116,6 @@ function Home() {
     return null
   }
 
-  if (profile === null) {
-    return (
-      <main className="mx-auto flex min-h-screen w-full max-w-xl items-center px-4 py-10 sm:px-6">
-        <section className="w-full rounded-2xl border border-emerald-200 bg-white/80 p-6 shadow-sm sm:p-8">
-          <p className="text-sm font-semibold tracking-widest text-emerald-700">
-            Welcome to LegsGo
-          </p>
-          <h1 className="mt-2 text-4xl font-bold text-slate-900">
-            Tell us about your riding
-          </h1>
-          <p className="mt-3 text-slate-600">
-            Add anything you know now. Every field is optional.
-          </p>
-
-          <form
-            className="mt-8 grid gap-5 sm:grid-cols-2"
-            onSubmit={(event) => {
-              event.preventDefault()
-              setProfileError('')
-
-              const formData = new FormData(event.currentTarget)
-              const name = formData.get('name')?.toString().trim()
-              const ftp = formData.get('ftp')?.toString()
-              const age = formData.get('age')?.toString()
-              const weight = formData.get('weight')?.toString()
-              const nextProfile: RiderProfile = {
-                ...(name ? { name } : {}),
-                ...(ftp ? { ftp: Number(ftp) } : {}),
-                ...(age ? { age: Number(age) } : {}),
-                ...(weight ? { weight: Number(weight) } : {}),
-              }
-
-              try {
-                localStorage.setItem(
-                  riderProfileStorageKey,
-                  JSON.stringify(nextProfile),
-                )
-                setProfile(nextProfile)
-              } catch {
-                setProfileError(
-                  'We could not save your profile in this browser. Please try again.',
-                )
-              }
-            }}
-          >
-            <label className="grid gap-2 text-sm font-semibold text-slate-700 sm:col-span-2">
-              Name
-              <input
-                name="name"
-                autoComplete="name"
-                placeholder="Your name"
-                className="rounded-xl border border-emerald-300 bg-white px-4 py-3 font-normal text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200"
-              />
-            </label>
-
-            <label className="grid gap-2 text-sm font-semibold text-slate-700">
-              FTP
-              <input
-                name="ftp"
-                type="number"
-                min="1"
-                inputMode="numeric"
-                placeholder="Watts"
-                className="rounded-xl border border-emerald-300 bg-white px-4 py-3 font-normal text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200"
-              />
-            </label>
-
-            <label className="grid gap-2 text-sm font-semibold text-slate-700">
-              Age
-              <input
-                name="age"
-                type="number"
-                min="1"
-                inputMode="numeric"
-                placeholder="Years"
-                className="rounded-xl border border-emerald-300 bg-white px-4 py-3 font-normal text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200"
-              />
-            </label>
-
-            <label className="grid gap-2 text-sm font-semibold text-slate-700 sm:col-span-2">
-              Weight
-              <input
-                name="weight"
-                type="number"
-                min="1"
-                step="0.1"
-                inputMode="decimal"
-                placeholder="pounds"
-                className="rounded-xl border border-emerald-300 bg-white px-4 py-3 font-normal text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200"
-              />
-            </label>
-
-            {profileError && (
-              <p
-                role="alert"
-                className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 sm:col-span-2"
-              >
-                {profileError}
-              </p>
-            )}
-
-            <button
-              type="submit"
-              className="rounded-xl bg-emerald-700 px-5 py-3 font-semibold text-white transition hover:bg-emerald-800 sm:col-span-2"
-            >
-              Start riding
-            </button>
-          </form>
-        </section>
-      </main>
-    )
-  }
-
   return (
     <main className="mx-auto grid min-h-screen w-full max-w-6xl gap-6 px-4 py-10 sm:px-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
       <aside className="self-start rounded-2xl border border-emerald-200 bg-white/80 p-5 shadow-sm lg:sticky lg:top-6">
@@ -199,46 +126,16 @@ function Home() {
           {profile.name || 'Your details'}
         </h2>
         <p className="mt-2 text-sm text-slate-600">
-          Changes are saved for future chats.
+          Optional. Changes save automatically.
         </p>
 
-        <form
-          className="mt-5 grid gap-4"
-          onSubmit={(event) => {
-            event.preventDefault()
-            setProfileSaveStatus('')
-
-            const formData = new FormData(event.currentTarget)
-            const name = formData.get('name')?.toString().trim()
-            const ftp = formData.get('ftp')?.toString()
-            const age = formData.get('age')?.toString()
-            const weight = formData.get('weight')?.toString()
-            const nextProfile: RiderProfile = {
-              ...(name ? { name } : {}),
-              ...(ftp ? { ftp: Number(ftp) } : {}),
-              ...(age ? { age: Number(age) } : {}),
-              ...(weight ? { weight: Number(weight) } : {}),
-            }
-
-            try {
-              localStorage.setItem(
-                riderProfileStorageKey,
-                JSON.stringify(nextProfile),
-              )
-              setProfile(nextProfile)
-              setProfileSaveStatus('Profile saved.')
-            } catch {
-              setProfileSaveStatus(
-                'We could not save your changes. Please try again.',
-              )
-            }
-          }}
-        >
+        <div className="mt-5 grid gap-4">
           <label className="grid gap-1.5 text-sm font-semibold text-slate-700">
             Name
             <input
               name="name"
-              defaultValue={profile.name}
+              value={profile.name ?? ''}
+              onChange={(event) => updateProfile('name', event.target.value)}
               autoComplete="name"
               placeholder="Your name"
               className="rounded-xl border border-emerald-300 bg-white px-3 py-2 font-normal text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200"
@@ -252,7 +149,8 @@ function Home() {
               type="number"
               min="1"
               inputMode="numeric"
-              defaultValue={profile.ftp}
+              value={profile.ftp ?? ''}
+              onChange={(event) => updateProfile('ftp', event.target.value)}
               placeholder="Watts"
               className="rounded-xl border border-emerald-300 bg-white px-3 py-2 font-normal text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200"
             />
@@ -265,7 +163,8 @@ function Home() {
               type="number"
               min="1"
               inputMode="numeric"
-              defaultValue={profile.age}
+              value={profile.age ?? ''}
+              onChange={(event) => updateProfile('age', event.target.value)}
               placeholder="Years"
               className="rounded-xl border border-emerald-300 bg-white px-3 py-2 font-normal text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200"
             />
@@ -279,32 +178,19 @@ function Home() {
               min="1"
               step="0.1"
               inputMode="decimal"
-              defaultValue={profile.weight}
+              value={profile.weight ?? ''}
+              onChange={(event) => updateProfile('weight', event.target.value)}
               placeholder="Pounds"
               className="rounded-xl border border-emerald-300 bg-white px-3 py-2 font-normal text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200"
             />
           </label>
 
-          {profileSaveStatus && (
-            <p
-              role="status"
-              className={`text-sm ${
-                profileSaveStatus === 'Profile saved.'
-                  ? 'text-emerald-700'
-                  : 'text-red-700'
-              }`}
-            >
-              {profileSaveStatus}
+          {profileError && (
+            <p role="alert" className="text-sm text-red-700">
+              {profileError}
             </p>
           )}
-
-          <button
-            type="submit"
-            className="rounded-xl bg-emerald-700 px-4 py-2.5 font-semibold text-white transition hover:bg-emerald-800"
-          >
-            Save profile
-          </button>
-        </form>
+        </div>
       </aside>
 
       <div className="flex min-w-0 flex-col">
@@ -441,6 +327,12 @@ function Home() {
 
 function WorkoutGenerator({ profile }: { profile: RiderProfile }) {
   const [workout, setWorkout] = useState<Workout | null>(null)
+  const [fileName, setFileName] = useState('')
+  const [durationMinutes, setDurationMinutes] = useState('60')
+  const [style, setStyle] =
+    useState<NormalizedWorkoutRequest['style']>('endurance')
+  const [difficulty, setDifficulty] =
+    useState<NormalizedWorkoutRequest['difficulty']>('moderate')
   const [isGenerating, setIsGenerating] = useState(false)
   const [generationError, setGenerationError] = useState('')
   const fieldClassName =
@@ -459,9 +351,9 @@ function WorkoutGenerator({ profile }: { profile: RiderProfile }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          durationMinutes: Number(formData.get('duration')),
-          style: formData.get('style'),
-          difficulty: formData.get('difficulty'),
+          durationMinutes: Number(durationMinutes),
+          style,
+          difficulty,
           description: formData.get('description')?.toString() ?? '',
           riderProfile: profile,
         }),
@@ -479,7 +371,7 @@ function WorkoutGenerator({ profile }: { profile: RiderProfile }) {
         throw new Error(message)
       }
 
-      const result = WorkoutSchema.safeParse(responseData)
+      const result = WorkoutGenerationResponseSchema.safeParse(responseData)
 
       if (!result.success) {
         throw new Error(
@@ -487,7 +379,11 @@ function WorkoutGenerator({ profile }: { profile: RiderProfile }) {
         )
       }
 
-      setWorkout(result.data)
+      setDurationMinutes(String(result.data.normalizedRequest.durationMinutes))
+      setStyle(result.data.normalizedRequest.style)
+      setDifficulty(result.data.normalizedRequest.difficulty)
+      setFileName(result.data.workout.name)
+      setWorkout(result.data.workout)
     } catch (error) {
       setGenerationError(
         error instanceof Error
@@ -497,6 +393,23 @@ function WorkoutGenerator({ profile }: { profile: RiderProfile }) {
     } finally {
       setIsGenerating(false)
     }
+  }
+
+  const handleDownloadZwo = () => {
+    if (!workout) return
+
+    const xml = workoutToZwo(workout)
+    const downloadName = `${sanitizeZwoFileName(fileName)}.zwo`
+    const blob = new Blob([xml], { type: 'application/xml;charset=utf-8' })
+    const objectUrl = URL.createObjectURL(blob)
+    const downloadLink = document.createElement('a')
+
+    downloadLink.href = objectUrl
+    downloadLink.download = downloadName
+    document.body.appendChild(downloadLink)
+    downloadLink.click()
+    downloadLink.remove()
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 0)
   }
 
   return (
@@ -509,7 +422,7 @@ function WorkoutGenerator({ profile }: { profile: RiderProfile }) {
           Plan your next session
         </h2>
         <p className="mt-2 text-sm text-slate-600">
-          Set the basics now. Workout generation will be added in a future step.
+          Set your defaults, then use the description for any specific changes.
         </p>
       </div>
 
@@ -519,20 +432,36 @@ function WorkoutGenerator({ profile }: { profile: RiderProfile }) {
       >
         <label className="grid gap-2 text-sm font-semibold text-slate-700">
           Duration
-          <select name="duration" defaultValue="60" className={fieldClassName}>
-            <option value="30">30 minutes</option>
-            <option value="45">45 minutes</option>
-            <option value="60">60 minutes</option>
-            <option value="90">90 minutes</option>
-            <option value="120">2 hours</option>
-          </select>
+          <div className="relative">
+            <input
+              name="duration"
+              type="number"
+              min="15"
+              max="360"
+              step="1"
+              required
+              value={durationMinutes}
+              onChange={(event) => setDurationMinutes(event.target.value)}
+              className={`${fieldClassName} w-full pr-20`}
+            />
+            <span className="pointer-events-none absolute inset-y-0 right-4 flex items-center text-sm font-medium text-slate-500">
+              minutes
+            </span>
+          </div>
         </label>
 
         <label className="grid gap-2 text-sm font-semibold text-slate-700">
           Workout style
           <select
             name="style"
-            defaultValue="endurance"
+            value={style}
+            onChange={(event) => {
+              const result =
+                NormalizedWorkoutRequestSchema.shape.style.safeParse(
+                  event.target.value,
+                )
+              if (result.success) setStyle(result.data)
+            }}
             className={fieldClassName}
           >
             <option value="endurance">Endurance</option>
@@ -547,7 +476,14 @@ function WorkoutGenerator({ profile }: { profile: RiderProfile }) {
           Difficulty
           <select
             name="difficulty"
-            defaultValue="moderate"
+            value={difficulty}
+            onChange={(event) => {
+              const result =
+                NormalizedWorkoutRequestSchema.shape.difficulty.safeParse(
+                  event.target.value,
+                )
+              if (result.success) setDifficulty(result.data)
+            }}
             className={fieldClassName}
           >
             <option value="easy">Easy</option>
@@ -584,12 +520,29 @@ function WorkoutGenerator({ profile }: { profile: RiderProfile }) {
         )}
       </form>
 
-      {workout && <GeneratedWorkout workout={workout} />}
+      {workout && (
+        <GeneratedWorkout
+          workout={workout}
+          fileName={fileName}
+          onFileNameChange={setFileName}
+          onDownload={handleDownloadZwo}
+        />
+      )}
     </section>
   )
 }
 
-function GeneratedWorkout({ workout }: { workout: Workout }) {
+function GeneratedWorkout({
+  workout,
+  fileName,
+  onFileNameChange,
+  onDownload,
+}: {
+  workout: Workout
+  fileName: string
+  onFileNameChange: (value: string) => void
+  onDownload: () => void
+}) {
   return (
     <article className="mt-8 border-t border-emerald-200 pt-6">
       <p className="text-xs font-semibold tracking-widest text-emerald-700 uppercase">
@@ -602,6 +555,24 @@ function GeneratedWorkout({ workout }: { workout: Workout }) {
         </p>
       </div>
       <p className="mt-2 text-slate-600">{workout.description}</p>
+
+      <div className="mt-5 flex flex-col gap-3 rounded-xl border border-emerald-100 bg-emerald-50/70 p-4 sm:flex-row sm:items-end">
+        <label className="grid min-w-0 flex-1 gap-1.5 text-sm font-semibold text-slate-700">
+          File name
+          <input
+            value={fileName}
+            onChange={(event) => onFileNameChange(event.target.value)}
+            className="w-full rounded-xl border border-emerald-300 bg-white px-3 py-2 font-normal text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200"
+          />
+        </label>
+        <button
+          type="button"
+          onClick={onDownload}
+          className="shrink-0 rounded-xl bg-emerald-700 px-4 py-2.5 font-semibold text-white transition hover:bg-emerald-800"
+        >
+          Download Zwift (.zwo)
+        </button>
+      </div>
 
       <ol className="mt-5 grid gap-3">
         {workout.blocks.map((block, index) => (

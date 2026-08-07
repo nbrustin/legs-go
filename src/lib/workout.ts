@@ -142,6 +142,17 @@ export const WorkoutRequestSchema = z.object({
   }),
 })
 
+export const NormalizedWorkoutRequestSchema = WorkoutRequestSchema.pick({
+  durationMinutes: true,
+  style: true,
+  difficulty: true,
+})
+
+export const WorkoutGenerationResponseSchema = z.object({
+  normalizedRequest: NormalizedWorkoutRequestSchema,
+  workout: WorkoutSchema,
+})
+
 export type WarmupBlock = z.infer<typeof WarmupBlockSchema>
 export type SteadyStateBlock = z.infer<typeof SteadyStateBlockSchema>
 export type IntervalBlock = z.infer<typeof IntervalBlockSchema>
@@ -149,6 +160,12 @@ export type CooldownBlock = z.infer<typeof CooldownBlockSchema>
 export type WorkoutBlock = z.infer<typeof WorkoutBlockSchema>
 export type Workout = z.infer<typeof WorkoutSchema>
 export type WorkoutRequest = z.infer<typeof WorkoutRequestSchema>
+export type NormalizedWorkoutRequest = z.infer<
+  typeof NormalizedWorkoutRequestSchema
+>
+export type WorkoutGenerationResponse = z.infer<
+  typeof WorkoutGenerationResponseSchema
+>
 export type OpenAIWorkoutResponse = z.infer<
   typeof OpenAIWorkoutResponseDataSchema
 >
